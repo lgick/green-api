@@ -1,133 +1,215 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import axios from 'axios';
+import React, {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import MessageList from './MessageList.jsx';
 import MessageInput from './MessageInput.jsx';
+import {
+  apiErrorText,
+  createGreenApiClient,
+  describeError,
+} from './api/greenApi.js';
 
-const Chat = ({ idInstance, apiTokenInstance }) => {
+const RECEIVE_TIMEOUT = 5; // секунд, long polling
+const DELETE_RETRY_LIMIT = 3;
+const SEEN_LIMIT = 500; // сколько идентификаторов держим для дедупликации
+
+const Chat = ({ messenger, credentials, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
   const lastMessageRef = useRef(null); // Реф для доступа к последнему сообщению
-  const receiptIdListRef = useRef(new Set()); // Используем useRef для хранения receiptIdList
-  const [isProcessing, setIsProcessing] = useState(false); // Флаг для блокировки обработки
+  const seenIdsRef = useRef(new Set()); // Дедупликация входящих по idMessage
+  const chatIdsRef = useRef(new Map()); // Кэш checkAccount: номер -> chatId | null
+  const client = useMemo(() => createGreenApiClient(credentials), [credentials]);
 
   useEffect(() => {
-    const fetchMessages = async () => {
-      if (isProcessing) {
-        console.log('Processing in progress, skipping fetch.');
-        return;
-      }
+    const timers = new Set();
+    const controller = new AbortController();
+    let cancelled = false;
 
-      setIsProcessing(true);
+    const wait = ms =>
+      new Promise(resolve => {
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          resolve();
+        }, ms);
+        timers.add(timer);
+      });
 
-      try {
-        const response = await axios.get(
-          `https://api.green-api.com/waInstance${idInstance}/receiveNotification/${apiTokenInstance}`,
-        );
-        console.log('Fetch messages response:', response.data); // Логируем полный ответ
-
-        if (response.data) {
-          const receiptId = response.data.receiptId;
-          const messageText =
-            response?.data?.body?.messageData?.textMessageData?.textMessage;
-
-          if (messageText && !receiptIdListRef.current.has(receiptId)) {
-            const newMessage = {
-              text: messageText,
-              sender: 'other',
-              receiptId: receiptId,
-            };
-            setMessages(prevMessages => [...prevMessages, newMessage]);
-            receiptIdListRef.current.add(receiptId);
-            console.log('Added receiptId to list:', receiptId);
-          }
-
-          // Удаляем уведомление после обработки, независимо от наличия сообщения
-          await deleteNotification(receiptId);
-        }
-      } catch (error) {
-        console.error(
-          'Error fetching messages:',
-          error.response ? error.response.data : error.message,
-        );
-      } finally {
-        setIsProcessing(false);
+    const remember = id => {
+      const seen = seenIdsRef.current;
+      seen.add(id);
+      if (seen.size > SEEN_LIMIT) {
+        // Set сохраняет порядок вставки — выкидываем самый старый идентификатор
+        seen.delete(seen.values().next().value);
       }
     };
 
     const deleteNotification = async receiptId => {
-      try {
-        const response = await axios.delete(
-          `https://api.green-api.com/waInstance${idInstance}/deleteNotification/${apiTokenInstance}/${receiptId}`,
-        );
-        console.log('Notification deleted:', response.data);
-        if (response.data.result) {
-          receiptIdListRef.current.delete(receiptId);
-          console.log('Deleted receiptId from list:', receiptId);
+      for (let attempt = 0; attempt < DELETE_RETRY_LIMIT && !cancelled; attempt += 1) {
+        try {
+          await client.deleteNotification(receiptId);
+          return;
+        } catch (err) {
+          if (attempt === DELETE_RETRY_LIMIT - 1) {
+            console.error('Error deleting notification:', describeError(err));
+            return;
+          }
+          await wait(1000);
         }
-      } catch (error) {
-        console.error(
-          'Error deleting notification:',
-          error.response ? error.response.data : error.message,
-        );
-        // Повторная попытка удаления через 1 секунду
-        setTimeout(() => deleteNotification(receiptId), 1000);
       }
     };
 
-    const interval = setInterval(fetchMessages, 1000); // Обновляем каждую секунду
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const data = await client.receiveNotification(RECEIVE_TIMEOUT, controller.signal);
 
-    return () => clearInterval(interval); // Очищаем интервал при размонтировании компонента
-  }, [idInstance, apiTokenInstance, isProcessing]);
+          if (cancelled) {
+            return;
+          }
+
+          // Пауза, чтобы не разогнать цикл, если сервер отвечает пусто мгновенно
+          if (!data || data.receiptId == null) {
+            await wait(1000);
+            continue;
+          }
+
+          const { receiptId, body } = data;
+          const idMessage = body?.idMessage ?? `receipt-${receiptId}`;
+          const messageData = body?.messageData;
+          const textMessage =
+            messageData?.textMessageData?.textMessage ??
+            messageData?.extendedTextMessageData?.text;
+          const isIncoming = body?.typeWebhook === 'incomingMessageReceived';
+          const typeInstance = body?.instanceData?.typeInstance;
+          const isOwnMessenger = !typeInstance || typeInstance === messenger.typeInstance;
+
+          if (
+            isIncoming &&
+            isOwnMessenger &&
+            textMessage &&
+            !seenIdsRef.current.has(idMessage)
+          ) {
+            remember(idMessage);
+            setMessages(prev => [
+              ...prev,
+              { id: idMessage, text: textMessage, sender: 'other' },
+            ]);
+          }
+
+          // Уведомление удаляем в любом случае, иначе очередь встанет
+          await deleteNotification(receiptId);
+        } catch (err) {
+          if (cancelled) {
+            return;
+          }
+          console.error('Error fetching messages:', describeError(err));
+          await wait(2000);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, [client, messenger.typeInstance]);
 
   useLayoutEffect(() => {
     // Проматываем к последнему сообщению при обновлении списка сообщений
     if (lastMessageRef.current) {
       requestAnimationFrame(() => {
-        lastMessageRef.current.scrollIntoView({
-          behavior: 'auto',
-          block: 'end',
-        });
+        if (lastMessageRef.current) {
+          lastMessageRef.current.scrollIntoView({
+            behavior: 'auto',
+            block: 'end',
+          });
+        }
       });
     }
   }, [messages]);
 
+  const resolveChatId = async phone => {
+    if (messenger.chatIdSuffix) {
+      return `${phone}${messenger.chatIdSuffix}`;
+    }
+
+    // Кэшируем, в т.ч. отсутствие аккаунта: частые проверки блокируются мессенджером
+    const cache = chatIdsRef.current;
+    if (!cache.has(phone)) {
+      const data = await client.checkAccount(phone);
+      if (typeof data?.exist !== 'boolean') {
+        throw new Error(data?.reason || 'unexpected checkAccount response');
+      }
+      cache.set(phone, data.exist ? data.chatId : null);
+    }
+    return cache.get(phone);
+  };
+
   const sendMessage = async () => {
-    if (!phoneNumber || !message) {
-      alert('Please enter a phone number and a message.');
+    const phone = phoneNumber.replace(/\D/g, '');
+
+    if (!phone || !message) {
+      setError('Please enter a phone number and a message.');
       return;
     }
 
-    const chatId = `${phoneNumber}@c.us`;
-    const data = {
-      chatId: chatId,
-      message: message,
-    };
+    if (sending) {
+      return;
+    }
+
+    const text = message;
+    setSending(true);
 
     try {
-      console.log('Sending message:', data); // Логируем данные запроса
-      const response = await axios.post(
-        `https://api.green-api.com/waInstance${idInstance}/SendMessage/${apiTokenInstance}`,
-        data,
-      );
-      console.log('Message sent:', response.data); // Логируем ответ
-      setMessages(prevMessages => [
-        ...prevMessages,
-        { text: message, sender: 'self', receiptId: response.data.receiptId },
+      const chatId = await resolveChatId(phone);
+      if (!chatId) {
+        setError(`No ${messenger.name} account for this phone number.`);
+        return;
+      }
+
+      const data = await client.sendMessage(chatId, text);
+      setError('');
+      setMessages(prev => [
+        ...prev,
+        { id: data?.idMessage || crypto.randomUUID(), text, sender: 'self' },
       ]);
       setMessage(''); // Очищаем поле ввода после отправки
-    } catch (error) {
-      console.error(
-        'Error sending message:',
-        error.response ? error.response.data : error.message,
-      ); // Логируем детали ошибки
+    } catch (err) {
+      // Ответ с кодом ошибки — ожидаемый сценарий GREEN-API, а не сбой кода.
+      const log = err.response ? console.warn : console.error;
+      log('Error sending message:', describeError(err));
+      setError(apiErrorText(err, 'Failed to send message'));
+    } finally {
+      setSending(false);
     }
   };
 
   return (
     <div className="chat">
       <div className="chat-header">
-        <h2>Chat with {phoneNumber}</h2>
+        <div className="chat-header-row">
+          <button
+            type="button"
+            className="back-button"
+            onClick={onBack}
+            aria-label="Back">
+            &#8592;
+          </button>
+          <h2>Chat with {phoneNumber}</h2>
+          <span className="messenger-badge">{messenger.name}</span>
+        </div>
         <input
           type="text"
           placeholder="Enter phone number"
@@ -139,11 +221,13 @@ const Chat = ({ idInstance, apiTokenInstance }) => {
       <div className="chat-body">
         <MessageList messages={messages} lastMessageRef={lastMessageRef} />
       </div>
+      {error ? <div className="chat-error">{error}</div> : null}
       <div className="chat-footer">
         <MessageInput
           onSendMessage={sendMessage}
           setMessage={setMessage}
           message={message}
+          disabled={sending}
         />
       </div>
     </div>

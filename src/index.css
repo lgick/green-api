@@ -1,18 +1,54 @@
+/* Токены темы. Значения по умолчанию — MAX (мессенджер по умолчанию). */
+:root {
+  --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu,
+    'Helvetica Neue', Arial, sans-serif;
+  --error: #d64545;
+}
+
+:root,
+:root[data-messenger='max'] {
+  --page-bg: #f5f4f8;
+  --surface: #ffffff;
+  --header-bg: linear-gradient(135deg, #4a90e2, #9b59d6);
+  --header-fg: #ffffff;
+  --header-border: rgba(255, 255, 255, 0.25);
+  --accent: #7c5cd6;
+  --accent-hover: #6a4ac2;
+  --bubble-self: #ede7fe;
+  --bubble-other: #f1f2f6;
+  --border: #e4e2ec;
+  --shadow: 0 8px 28px rgba(76, 58, 130, 0.14);
+}
+
+:root[data-messenger='whatsapp'] {
+  --page-bg: #f0f0f0;
+  --surface: #ffffff;
+  --header-bg: #075e54;
+  --header-fg: #ffffff;
+  --header-border: #054c45;
+  --accent: #25d366;
+  --accent-hover: #21bf57;
+  --bubble-self: #dcf8c6;
+  --bubble-other: #e9ebef;
+  --border: #dddddd;
+  --shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
 body {
-  font-family: Arial, sans-serif;
+  font-family: var(--font-stack);
   margin: 0;
   padding: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background-color: #f0f0f0;
+  background-color: var(--page-bg);
 }
 
 .App {
-  background-color: white;
+  background-color: var(--surface);
   border-radius: 10px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow);
   overflow: hidden;
   width: 400px;
   display: flex;
@@ -29,21 +65,72 @@ body {
 
 .login-form input {
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 5px;
+  font: inherit;
+}
+
+.login-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .login-form button {
   padding: 10px;
-  background-color: #25d366;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 5px;
   cursor: pointer;
+  font: inherit;
 }
 
 .login-form button:hover {
-  background-color: #21bf57;
+  background: var(--accent-hover);
+}
+
+.login-form button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.login-error {
+  color: var(--error);
+  font-size: 13px;
+}
+
+/* Тумблер мессенджера */
+.messenger-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background-color: var(--page-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.messenger-switch-option {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #5a5a6a;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.messenger-switch-option.is-active {
+  background: var(--header-bg);
+  color: var(--header-fg);
+}
+
+.messenger-switch-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
 /* Стили чата */
@@ -54,20 +141,82 @@ body {
 }
 
 .chat-header {
-  background-color: #075e54;
-  color: white;
+  background: var(--header-bg);
+  color: var(--header-fg);
   padding: 10px 20px;
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--header-border);
+}
+
+.chat-header-row {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #054c45;
+  gap: 8px;
+}
+
+.chat-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-header input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--header-border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.back-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.2);
+  color: var(--header-fg);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.back-button:hover {
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+.messenger-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.chat-error {
+  padding: 8px 20px 0;
+  color: var(--error);
+  font-size: 13px;
 }
 
 .chat-body {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -86,22 +235,36 @@ body {
 
 .chat-footer input {
   flex: 1;
+  min-width: 0;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 5px;
+  font: inherit;
+}
+
+.chat-footer input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .chat-footer button {
   padding: 10px 20px;
-  background-color: #25d366;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 5px;
   cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
 }
 
 .chat-footer button:hover {
-  background-color: #21bf57;
+  background: var(--accent-hover);
+}
+
+.chat-footer button:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 /* Стили сообщений */
@@ -128,14 +291,16 @@ body {
   border-radius: 15px;
   max-width: 70%;
   word-wrap: break-word;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .message.self {
-  background-color: #dcf8c6;
+  background-color: var(--bubble-self);
   align-self: flex-end;
 }
 
 .message.other {
-  background-color: #e9ebef;
+  background-color: var(--bubble-other);
   align-self: flex-start;
 }

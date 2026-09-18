@@ -1,6 +1,6 @@
 import React from 'react';
 
-const MessageInput = ({ onSendMessage, setMessage, message }) => {
+const MessageInput = ({ onSendMessage, setMessage, message, disabled }) => {
   const handleSubmit = e => {
     e.preventDefault();
     onSendMessage();
@@ -15,7 +15,9 @@ const MessageInput = ({ onSendMessage, setMessage, message }) => {
         placeholder="Type a message..."
         required
       />
-      <button type="submit">Send</button>
+      <button type="submit" disabled={disabled}>
+        Send
+      </button>
     </form>
   );
 };

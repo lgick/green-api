@@ -1,5 +1,5 @@
 ```
-git clone https://github.com/lgick/whatsapp.git whatsapp-clone && cd whatsapp-clone && npm i && npm start
+git clone https://github.com/lgick/green-api.git green-api && cd green-api && npm i && npm run dev
 ```
 
-![Запись экрана 2025-02-02 в 02 50 48](https://github.com/user-attachments/assets/0a5451b0-2316-481d-b874-0216bcceb381)
+![max](https://github.com/user-attachments/assets/a130c36c-a096-43b7-ba1f-a96f6581bedf)

@@ -1,25 +1,31 @@
-import React, { useState } from 'react';
-import './App.css';
+import React, { useEffect, useState } from 'react';
 import Login from './Login.jsx';
 import Chat from './Chat.jsx';
+import { DEFAULT_MESSENGER, getMessenger } from './messengers.js';
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [idInstance, setIdInstance] = useState('');
-  const [apiTokenInstance, setApiTokenInstance] = useState('');
+  const [messengerId, setMessengerId] = useState(DEFAULT_MESSENGER);
+  const [credentials, setCredentials] = useState(null);
 
-  const handleLogin = (idInstance, apiTokenInstance) => {
-    setIdInstance(idInstance);
-    setApiTokenInstance(apiTokenInstance);
-    setIsLoggedIn(true);
-  };
+  // Токены темы объявлены на :root, чтобы перекрашивался и фон страницы
+  useEffect(() => {
+    document.documentElement.dataset.messenger = messengerId;
+  }, [messengerId]);
 
   return (
     <div className="App">
-      {!isLoggedIn ? (
-        <Login onLogin={handleLogin} />
+      {!credentials ? (
+        <Login
+          messengerId={messengerId}
+          onMessengerChange={setMessengerId}
+          onLogin={setCredentials}
+        />
       ) : (
-        <Chat idInstance={idInstance} apiTokenInstance={apiTokenInstance} />
+        <Chat
+          messenger={getMessenger(messengerId)}
+          credentials={credentials}
+          onBack={() => setCredentials(null)}
+        />
       )}
     </div>
   );
